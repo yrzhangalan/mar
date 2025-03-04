@@ -150,7 +150,7 @@ class MAR(nn.Module):
         return x  # [n, c, h, w]
 
     def sample_orders(self, bsz):
-        # generate a batch of random generation orders
+        # generate a batch of random generation orders [bsz, seq_len]
         orders = []
         for _ in range(bsz):
             order = np.array(list(range(self.seq_len)))
@@ -160,6 +160,7 @@ class MAR(nn.Module):
         return orders
 
     def random_masking(self, x, orders):
+        # mask tokens with number 1, 0 for keep, same with MAE
         # generate token mask
         bsz, seq_len, embed_dim = x.shape
         mask_rate = self.mask_ratio_generator.rvs(1)[0]
@@ -179,9 +180,9 @@ class MAR(nn.Module):
 
         # random drop class embedding during training
         if self.training:
-            drop_latent_mask = torch.rand(bsz) < self.label_drop_prob
-            drop_latent_mask = drop_latent_mask.unsqueeze(-1).cuda().to(x.dtype)
-            class_embedding = drop_latent_mask * self.fake_latent + (1 - drop_latent_mask) * class_embedding
+            drop_latent_mask = torch.rand(bsz) < self.label_drop_prob # note_z if drop, num=1
+            drop_latent_mask = drop_latent_mask.unsqueeze(-1).cuda().to(x.dtype) # [bsz, 1]
+            class_embedding = drop_latent_mask * self.fake_latent + (1 - drop_latent_mask) * class_embedding # [bsz, embed_dim]
 
         x[:, :self.buffer_size] = class_embedding.unsqueeze(1)
 
@@ -190,7 +191,7 @@ class MAR(nn.Module):
         x = self.z_proj_ln(x)
 
         # dropping
-        x = x[(1-mask_with_buffer).nonzero(as_tuple=True)].reshape(bsz, -1, embed_dim)
+        x = x[(1-mask_with_buffer).nonzero(as_tuple=True)].reshape(bsz, -1, embed_dim) # [bsz, masked_seq_len+buffer_len, embed_dim]
 
         # apply Transformer blocks
         if self.grad_checkpointing and not torch.jit.is_scripting():
